@@ -35,6 +35,7 @@ class CTCBeamDecoder(object):
         num_processes=4,
         blank_id=0,
         log_probs_input=False,
+        is_token_based=False,
     ):
         self.cutoff_top_n = cutoff_top_n
         self._beam_width = beam_width
@@ -44,9 +45,15 @@ class CTCBeamDecoder(object):
         self._num_labels = len(labels)
         self._blank_id = blank_id
         self._log_probs = 1 if log_probs_input else 0
+        self._is_token_based = 1 if is_token_based else 0
         if model_path:
             self._scorer = ctc_decode.paddle_get_scorer(
-                alpha, beta, model_path.encode(), self._labels, self._num_labels
+                alpha,
+                beta,
+                model_path.encode(),
+                self._labels,
+                self._num_labels,
+                self._is_token_based,
             )
         self._cutoff_prob = cutoff_prob
 
@@ -81,7 +88,9 @@ class CTCBeamDecoder(object):
         else:
             seq_lens = seq_lens.cpu().int()
         output = torch.IntTensor(batch_size, self._beam_width, max_seq_len).cpu().int()
-        timesteps = torch.IntTensor(batch_size, self._beam_width, max_seq_len).cpu().int()
+        timesteps = (
+            torch.IntTensor(batch_size, self._beam_width, max_seq_len).cpu().int()
+        )
         scores = torch.FloatTensor(batch_size, self._beam_width).cpu().float()
         out_seq_len = torch.zeros(batch_size, self._beam_width).cpu().int()
         if self._scorer:
@@ -139,6 +148,9 @@ class CTCBeamDecoder(object):
         if self._scorer is not None:
             ctc_decode.paddle_release_scorer(self._scorer)
 
+    def token_based(self):
+        return ctc_decode.is_token_based(self._scorer) if self._scorer else None
+
 
 class OnlineCTCBeamDecoder(object):
     """
@@ -159,6 +171,7 @@ class OnlineCTCBeamDecoder(object):
         blank_id (int): Index of the CTC blank token (probably 0) used when training your model.
         log_probs_input (bool): False if your model has passed through a softmax and output probabilities sum to 1.
     """
+
     def __init__(
         self,
         labels,
@@ -171,6 +184,7 @@ class OnlineCTCBeamDecoder(object):
         num_processes=4,
         blank_id=0,
         log_probs_input=False,
+        is_token_based=False,
     ):
         self._cutoff_top_n = cutoff_top_n
         self._beam_width = beam_width
@@ -180,9 +194,15 @@ class OnlineCTCBeamDecoder(object):
         self._num_labels = len(labels)
         self._blank_id = blank_id
         self._log_probs = 1 if log_probs_input else 0
+        self._is_token_based = 1 if is_token_based else 0
         if model_path:
             self._scorer = ctc_decode.paddle_get_scorer(
-                alpha, beta, model_path.encode(), self._labels, self._num_labels
+                alpha,
+                beta,
+                model_path.encode(),
+                self._labels,
+                self._num_labels,
+                self._is_token_based,
             )
         self._cutoff_prob = cutoff_prob
 
@@ -230,7 +250,7 @@ class OnlineCTCBeamDecoder(object):
             [state.state for state in states],
             is_eos_s,
             scores,
-            out_seq_len
+            out_seq_len,
         )
         res_beam_results = res_beam_results.int()
         res_timesteps = res_timesteps.int()
@@ -249,6 +269,9 @@ class OnlineCTCBeamDecoder(object):
     def reset_state(state):
         ctc_decode.paddle_release_state(state)
 
+    def token_based(self):
+        return ctc_decode.is_token_based(self._scorer) if self._scorer else None
+
 
 class DecoderState:
     """
@@ -257,6 +280,7 @@ class DecoderState:
     Args:
         decoder (OnlineCTCBeamDecoder) - decoder you will use for decoding.
     """
+
     def __init__(self, decoder):
         self.state = ctc_decode.paddle_get_decoder_state(
             decoder._labels,
